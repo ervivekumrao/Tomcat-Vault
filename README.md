@@ -1,4 +1,4 @@
-# EncryptTomcatConnectionPool
+# Encrypt Tomcat Connection Pool
 
 ## Features
 
