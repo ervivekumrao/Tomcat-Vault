@@ -1,22 +1,30 @@
+/*
+ * Copyright 2024-2026 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package umrao.encrypt;
 
-import static umrao.encrypt.Constants.ENCRYPTION_ALGO;
-import static umrao.encrypt.Constants.ENCRYPTION_KEY;
+import org.apache.tomcat.vault.cli.TomcatVaultCLI;
 
+/**
+ * Backward-compatibility CLI entry point.
+ * Delegates to {@link TomcatVaultCLI}.
+ */
 public class EncryptDecrypt {
-    public static void main(String... args) {
-        if (args.length != 2) {
-            System.out.println("Wrong input parameter use below \njava -jar tomcat-cp-encrypt.jar -e messageToEncrypt \nor \njava -jar tomcat-dbcp2-encrypt.jar -d messageToDecrypt");
-            System.exit(0);
-        }
 
-        Encryption c = new Encryption(ENCRYPTION_KEY, ENCRYPTION_ALGO);
-        if ("-e".equalsIgnoreCase(args[0])) {
-            System.out.println("encrypted: " + c.getEncryptedMessage(args[1]));
-        } else if ("-d".equalsIgnoreCase(args[0])) {
-            System.out.println("decrypted: " + c.getDecryptedMessage(args[1]));
-        } else {
-            System.out.println("Invalid arguments, it should be either -e or -d");
-        }
+    public static void main(String... args) {
+        TomcatVaultCLI.main(args);
     }
 }

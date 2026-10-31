@@ -1,22 +1,55 @@
 <?xml version='1.0' encoding='utf-8'?>
 <!--
-Here's an example setting
-enc text : Through java -jar tomcat-dbcp-ext.jar -e msg
+  ~ Copyright 2024-2026 the original author or authors.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      https://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+<!--
+Tomcat Vault - JNDI Connection Pool Resource Configuration Examples
+Compatible with Apache Tomcat 7, 8, 8.5, 9, 10, 10.1, 11
 
- -->
+Generate encrypted passwords using:
+  java -jar tomcat-vault-2.0.0.jar -e
+-->
 <Context>
-      <Resource
-              name="jdbc/OracleData"
-              auth="Container"
-              type="javax.sql.DataSource"
-              driverClassName="oracle.jdbc.OracleDriver"
-              factory="org.apache.tomcat.dbcp.dbcp2.EncryptBasicDataSourceFactory"
-              validationQuery="SELECT 1 from dual"
-              maxIdle="2"
-              maxWait="5000"
-              password="E63DA7E3F082F9F2C43953E666F386E6"
-              username="E63DA7E3F082F9F2C43953E666F386E6"
-              url="jdbc:oracle:thin:@DB_HOST:DB_PORT:DB_SID"
-              maxActive="10" />      
-    
+    <!-- Example 1: Tomcat DBCP2 Pool with Modern AES-256-GCM ENC(...) -->
+    <Resource
+            name="jdbc/OracleData"
+            auth="Container"
+            type="javax.sql.DataSource"
+            driverClassName="oracle.jdbc.OracleDriver"
+            factory="org.apache.tomcat.vault.VaultBasicDataSourceFactory"
+            validationQuery="SELECT 1 from dual"
+            maxIdle="2"
+            maxWaitMillis="5000"
+            username="ENC(XAYad7xottt2lalhO6vL/JKEC33F1FOc7ctXWflNECfFGcyxerzh8CtfD8E1keLwmmVGv03qAN/SNB/jKT8=)"
+            password="ENC(axVXzR5w+rr8ICucjw/ZZzhila/psl0pwBez6wo+29k3+Hbi/+6kN/YFcaqhOoCxniLc)"
+            url="jdbc:oracle:thin:@DB_HOST:1521:ORCL"
+            maxTotal="20" />
+
+    <!-- Example 2: Tomcat JDBC Connection Pool (or backward-compatible factory) -->
+    <!--
+    <Resource
+            name="jdbc/MSSQLData"
+            auth="Container"
+            type="javax.sql.DataSource"
+            driverClassName="com.microsoft.sqlserver.jdbc.SQLServerDriver"
+            factory="org.apache.tomcat.vault.VaultDataSourceFactory"
+            maxActive="50"
+            maxIdle="10"
+            maxWait="10000"
+            username="ENC(5837476D517479624B533538...)"
+            password="ENC(71672F2B566E496D796E6168...)"
+            url="jdbc:sqlserver://localhost:1433;databaseName=appdb;trustServerCertificate=true" />
+    -->
 </Context>
