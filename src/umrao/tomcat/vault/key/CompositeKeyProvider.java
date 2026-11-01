@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 3. Filesystem Key File (-Dtomcat.vault.keyfile / TOMCAT_VAULT_KEYFILE)
  * 4. Java KeyStore (-Dtomcat.vault.keystore / TOMCAT_VAULT_KEYSTORE)
  * 5. Fallback Default Development Key
+ * @author Vivek Umrao
  */
 @SuppressWarnings("unused")
 public class CompositeKeyProvider implements KeyProvider {
@@ -47,6 +48,7 @@ public class CompositeKeyProvider implements KeyProvider {
         this(Arrays.asList(
                 new SystemPropertyKeyProvider(),
                 new EnvironmentKeyProvider(),
+                new SecretResolverKeyProvider(),
                 new FileKeyProvider(),
                 new KeyStoreKeyProvider(),
                 new DefaultKeyProvider()
@@ -94,6 +96,8 @@ public class CompositeKeyProvider implements KeyProvider {
                     LOGGER.debug("Resolved encryption key from provider: " + activeProviderName);
                     return key.trim();
                 }
+            } catch (SecurityException se) {
+                throw se;
             } catch (Exception e) {
                 LOGGER.warn("Error resolving key from " + provider.getProviderName() + ": " + e.getMessage(), e);
             }
@@ -123,6 +127,8 @@ public class CompositeKeyProvider implements KeyProvider {
                     this.activeProviderName = provider.getProviderName() + "[alias=" + keyAlias.trim() + "]";
                     return key.trim();
                 }
+            } catch (SecurityException se) {
+                throw se;
             } catch (Exception e) {
                 LOGGER.warn("Error resolving alias key from " + provider.getProviderName() + ": " + e.getMessage(), e);
             }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,7 @@ import java.util.logging.Logger;
  * Inspects connection pool properties (such as password, username, url) and decrypts
  * encrypted properties without exposing plaintext credentials in logs.
  * Compatible with all Apache Tomcat versions (Tomcat 7 through 11).
+ * @author Vivek Umrao
  */
 public class ReferencePropertyDecryptor {
 
@@ -97,12 +98,13 @@ public class ReferencePropertyDecryptor {
                 }
 
                 String rawValue = content.toString();
-                String decryptedValue = null;
+                String current = rawValue;
                 long startTime = System.currentTimeMillis();
 
-                if (umrao.tomcat.vault.secret.SecretResolverRegistry.getInstance().isResolvable(rawValue)) {
+                // 1. Resolve direct or embedded cloud secrets
+                if (umrao.tomcat.vault.secret.SecretResolverRegistry.getInstance().isResolvable(current)) {
                     try {
-                        decryptedValue = umrao.tomcat.vault.secret.SecretResolverRegistry.getInstance().resolve(rawValue);
+                        current = umrao.tomcat.vault.secret.SecretResolverRegistry.getInstance().resolve(current);
                     } catch (Exception e) {
                         long duration = System.currentTimeMillis() - startTime;
                         VaultAuditLogger.getInstance().logEvent("SECRET_RESOLUTION_FAILED", resourceName, property, "SecretResolverRegistry", "FAILURE", duration);
@@ -110,9 +112,32 @@ public class ReferencePropertyDecryptor {
                         JUL_LOGGER.log(Level.SEVERE, "Failed to resolve external secret for property [" + property + "]: " + e.getMessage(), e);
                         throw new SecretResolutionException("External secret resolution failure for property '" + property + "'", e);
                     }
-                } else if (crypto.isEncrypted(rawValue)) {
+                } else if (umrao.tomcat.vault.secret.SecretResolverRegistry.getInstance().hasResolvable(current)) {
                     try {
-                        decryptedValue = crypto.decrypt(rawValue);
+                        current = umrao.tomcat.vault.secret.SecretResolverRegistry.getInstance().resolveEmbedded(current);
+                    } catch (Exception e) {
+                        long duration = System.currentTimeMillis() - startTime;
+                        VaultAuditLogger.getInstance().logEvent("SECRET_RESOLUTION_FAILED", resourceName, property, "SecretResolverRegistry", "FAILURE", duration);
+                        LOGGER.error("Failed to resolve external secret for property [" + property + "]: " + e.getMessage(), e);
+                        JUL_LOGGER.log(Level.SEVERE, "Failed to resolve external secret for property [" + property + "]: " + e.getMessage(), e);
+                        throw new SecretResolutionException("External secret resolution failure for property '" + property + "'", e);
+                    }
+                }
+
+                // 2. Decrypt direct or embedded ENC(...) tokens
+                if (crypto.isEncrypted(current)) {
+                    try {
+                        current = crypto.decrypt(current);
+                    } catch (Exception e) {
+                        long duration = System.currentTimeMillis() - startTime;
+                        VaultAuditLogger.getInstance().logEvent("DECRYPTION_FAILED", resourceName, property, providerName, "FAILURE", duration);
+                        LOGGER.error("Failed to decrypt DataSource property [" + property + "]: " + e.getMessage(), e);
+                        JUL_LOGGER.log(Level.SEVERE, "Failed to decrypt DataSource property [" + property + "]: " + e.getMessage(), e);
+                        throw new DecryptionException("Decryption failure for property '" + property + "'", e);
+                    }
+                } else if (crypto.hasEmbeddedEncrypted(current)) {
+                    try {
+                        current = crypto.decryptEmbedded(current);
                     } catch (Exception e) {
                         long duration = System.currentTimeMillis() - startTime;
                         VaultAuditLogger.getInstance().logEvent("DECRYPTION_FAILED", resourceName, property, providerName, "FAILURE", duration);
@@ -122,10 +147,10 @@ public class ReferencePropertyDecryptor {
                     }
                 }
 
-                if (decryptedValue != null && !decryptedValue.equals(rawValue)) {
+                if (current != null && !current.equals(rawValue)) {
                     long duration = System.currentTimeMillis() - startTime;
                     reference.remove(i);
-                    reference.add(i, new StringRefAddr(property, decryptedValue));
+                    reference.add(i, new StringRefAddr(property, current));
                     decryptedCount++;
 
                     VaultAuditLogger.getInstance().logEvent("CREDENTIAL_DECRYPTED", resourceName, property, providerName, "SUCCESS", duration);

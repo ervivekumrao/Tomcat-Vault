@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Dynamic Credential Refresher and connection pool re-authentication coordinator.
  * Allows Tomcat connection pools to be refreshed and stale database connections evicted
  * when master credentials or cloud vault secrets rotate without restarting Tomcat.
+ * @author Vivek Umrao
  */
 @SuppressWarnings("unused")
 public class VaultCredentialReloader {
@@ -35,6 +36,18 @@ public class VaultCredentialReloader {
     private static final VaultCredentialReloader INSTANCE = new VaultCredentialReloader();
 
     private final List<CredentialChangeListener> listeners = new CopyOnWriteArrayList<>();
+
+    private static final class RegisteredDataSource {
+        final String resourceName;
+        final java.lang.ref.WeakReference<Object> dataSourceRef;
+
+        RegisteredDataSource(String resourceName, Object dataSource) {
+            this.resourceName = resourceName;
+            this.dataSourceRef = new java.lang.ref.WeakReference<>(dataSource);
+        }
+    }
+
+    private final List<RegisteredDataSource> registeredDataSources = new CopyOnWriteArrayList<>();
 
     public static VaultCredentialReloader getInstance() {
         return INSTANCE;
@@ -63,15 +76,21 @@ public class VaultCredentialReloader {
 
     public void clearListeners() {
         listeners.clear();
+        registeredDataSources.clear();
     }
 
     public int getListenerCount() {
         return listeners.size();
     }
 
+    public int getRegisteredDataSourceCount() {
+        purgeExpiredDataSources();
+        return registeredDataSources.size();
+    }
+
     /**
      * Registers a live JDBC connection pool (e.g. HikariCP, Tomcat JDBC, DBCP2)
-     * so that its active/idle connections are automatically evicted upon credential rotation.
+     * using a WeakReference to prevent ClassLoader and Metaspace memory leaks across context lifecycles.
      *
      * @param resourceName JNDI resource name (e.g. "jdbc/AppDB")
      * @param dataSource connection pool instance
@@ -81,12 +100,33 @@ public class VaultCredentialReloader {
             return;
         }
 
-        addListener(target -> {
-            if ("*".equals(target) || resourceName.equalsIgnoreCase(target)) {
-                LOGGER.info("Evicting stale connections for resource [" + resourceName + "] following credential update.");
-                evictPoolConnections(dataSource);
+        purgeExpiredDataSources();
+
+        for (RegisteredDataSource reg : registeredDataSources) {
+            Object existing = reg.dataSourceRef.get();
+            if (existing != null && existing == dataSource && resourceName.equalsIgnoreCase(reg.resourceName)) {
+                return; // already registered
             }
+        }
+
+        registeredDataSources.add(new RegisteredDataSource(resourceName, dataSource));
+    }
+
+    public void unregisterDataSource(String resourceName) {
+        if (resourceName == null) return;
+        registeredDataSources.removeIf(reg -> resourceName.equalsIgnoreCase(reg.resourceName));
+    }
+
+    public void unregisterDataSource(Object dataSource) {
+        if (dataSource == null) return;
+        registeredDataSources.removeIf(reg -> {
+            Object obj = reg.dataSourceRef.get();
+            return obj == null || obj == dataSource;
         });
+    }
+
+    private void purgeExpiredDataSources() {
+        registeredDataSources.removeIf(reg -> reg.dataSourceRef.get() == null);
     }
 
     private void evictPoolConnections(Object dataSource) {
@@ -115,10 +155,24 @@ public class VaultCredentialReloader {
                 return;
             }
 
-            // 3. Generic close / restart if supported
-            Method evictMethod = findMethod(clazz, "evictConnections");
+            // 3. DBCP2: dataSource.restart() or dataSource.evict()
+            Method restartMethod = findMethod(clazz, "restart");
+            if (restartMethod != null) {
+                restartMethod.invoke(dataSource);
+                LOGGER.info("Executed restart on DBCP2 pool.");
+                return;
+            }
+            Method evictMethod = findMethod(clazz, "evict");
             if (evictMethod != null) {
                 evictMethod.invoke(dataSource);
+                LOGGER.info("Executed evict on DBCP2 pool.");
+                return;
+            }
+
+            // 4. Generic evictConnections if supported
+            Method genericEvict = findMethod(clazz, "evictConnections");
+            if (genericEvict != null) {
+                genericEvict.invoke(dataSource);
                 LOGGER.info("Executed evictConnections on pool.");
             }
         } catch (Exception e) {
@@ -126,20 +180,40 @@ public class VaultCredentialReloader {
         }
     }
 
-    private static Method findMethod(Class<?> clazz, String name) {
+    private static final java.util.concurrent.ConcurrentMap<String, Method> METHOD_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Method NO_METHOD;
+    static {
         try {
-            Method m = clazz.getMethod(name);
-            m.setAccessible(true);
-            return m;
+            NO_METHOD = VaultCredentialReloader.class.getDeclaredMethod("noMethodSentinel");
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    private static void noMethodSentinel() {
+    }
+
+    private static Method findMethod(Class<?> clazz, String name) {
+        String cacheKey = clazz.getName() + "#" + name;
+        Method cached = METHOD_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached == NO_METHOD ? null : cached;
+        }
+
+        Method found = null;
+        try {
+            found = clazz.getMethod(name);
+            found.setAccessible(true);
         } catch (NoSuchMethodException e) {
             try {
-                Method m = clazz.getDeclaredMethod(name);
-                m.setAccessible(true);
-                return m;
+                found = clazz.getDeclaredMethod(name);
+                found.setAccessible(true);
             } catch (NoSuchMethodException ex) {
-                return null;
+                // Method not present on target class
             }
         }
+        METHOD_CACHE.put(cacheKey, found != null ? found : NO_METHOD);
+        return found;
     }
 
     /**
@@ -151,6 +225,19 @@ public class VaultCredentialReloader {
         String target = (resourceName != null && !resourceName.trim().isEmpty()) ? resourceName.trim() : "*";
         LOGGER.info("Initiating credential reload for resource: " + target);
 
+        // 1. Evict connections from matching live DataSources
+        purgeExpiredDataSources();
+        for (RegisteredDataSource reg : registeredDataSources) {
+            if ("*".equals(target) || reg.resourceName.equalsIgnoreCase(target)) {
+                Object ds = reg.dataSourceRef.get();
+                if (ds != null) {
+                    LOGGER.info("Evicting stale connections for resource [" + reg.resourceName + "] following credential update.");
+                    evictPoolConnections(ds);
+                }
+            }
+        }
+
+        // 2. Notify custom listeners
         for (CredentialChangeListener listener : listeners) {
             try {
                 listener.onCredentialChanged(target);

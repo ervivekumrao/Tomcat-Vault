@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,13 +37,35 @@ import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
-import static umrao.tomcat.vault.VaultConstants.*;
+import static umrao.tomcat.vault.VaultConstants.AES_KEY_LENGTH_BITS;
+import static umrao.tomcat.vault.VaultConstants.ALGORITHM_AES_CBC_LEGACY;
+import static umrao.tomcat.vault.VaultConstants.ALGORITHM_AES_GCM;
+import static umrao.tomcat.vault.VaultConstants.DEFAULT_DEV_IV;
+import static umrao.tomcat.vault.VaultConstants.DEFAULT_DEV_KEY;
+import static umrao.tomcat.vault.VaultConstants.ENV_KEY;
+import static umrao.tomcat.vault.VaultConstants.ENV_PBKDF2_ITERATIONS;
+import static umrao.tomcat.vault.VaultConstants.ENV_SALT;
+import static umrao.tomcat.vault.VaultConstants.ENV_STRICT;
+import static umrao.tomcat.vault.VaultConstants.GCM_IV_LENGTH_BYTES;
+import static umrao.tomcat.vault.VaultConstants.GCM_TAG_LENGTH_BITS;
+import static umrao.tomcat.vault.VaultConstants.HASH_ALGO_SHA256;
+import static umrao.tomcat.vault.VaultConstants.HASH_ALGO_SHA512;
+import static umrao.tomcat.vault.VaultConstants.KDF_PBKDF2;
+import static umrao.tomcat.vault.VaultConstants.LEGACY_ENCRYPTION_IDENTIFIER;
+import static umrao.tomcat.vault.VaultConstants.LEGACY_HEX_IDENTIFIER;
+import static umrao.tomcat.vault.VaultConstants.PBKDF2_ITERATIONS;
+import static umrao.tomcat.vault.VaultConstants.PREFIX_ENC;
+import static umrao.tomcat.vault.VaultConstants.SUFFIX_ENC;
+import static umrao.tomcat.vault.VaultConstants.SYS_PROP_KEY;
+import static umrao.tomcat.vault.VaultConstants.SYS_PROP_PBKDF2_ITERATIONS;
+import static umrao.tomcat.vault.VaultConstants.SYS_PROP_SALT;
+import static umrao.tomcat.vault.VaultConstants.SYS_PROP_STRICT;
 
 /**
  * Enterprise-grade cryptographic engine supporting AES-256-GCM authenticated encryption,
  * standard ENC(...) envelope formats, dynamic random IVs, and legacy AES-CBC backward compatibility.
+ * @author Vivek Umrao
  */
 public class VaultCrypto {
 
@@ -53,11 +75,39 @@ public class VaultCrypto {
     // Fixed salt for PBKDF2 key derivation from passphrase string
     private static final byte[] KDF_SALT = "ApacheTomcatVaultSaltKey2026".getBytes(StandardCharsets.UTF_8);
 
-    // Bounded cache of derived SecretKeys to prevent unbounded memory growth (CWE-400)
+    // Bounded LRU cache of derived SecretKeys to prevent unbounded memory growth (CWE-400)
     // Keyed by cryptographic SHA-256 digest of (passphrase + salt) to avoid keeping plaintext keys in heap (CWE-316)
     private static final int MAX_KEY_CACHE_SIZE = 128;
-    private static final Map<String, SecretKey> GCM_KEY_CACHE = new ConcurrentHashMap<>();
-    private static final Map<String, SecretKey> CBC_KEY_CACHE = new ConcurrentHashMap<>();
+
+    private static final class LruKeyCache {
+        private final int maxSize;
+        private final Map<String, SecretKey> map;
+
+        LruKeyCache(int maxSize) {
+            this.maxSize = maxSize;
+            this.map = new java.util.LinkedHashMap<>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, SecretKey> eldest) {
+                    return size() > LruKeyCache.this.maxSize;
+                }
+            };
+        }
+
+        synchronized SecretKey get(String key) {
+            return map.get(key);
+        }
+
+        synchronized void put(String key, SecretKey value) {
+            map.put(key, value);
+        }
+
+        synchronized void clear() {
+            map.clear();
+        }
+    }
+
+    private static final LruKeyCache GCM_KEY_CACHE = new LruKeyCache(MAX_KEY_CACHE_SIZE);
+    private static final LruKeyCache CBC_KEY_CACHE = new LruKeyCache(MAX_KEY_CACHE_SIZE);
 
     private final KeyProvider keyProvider;
 
@@ -226,6 +276,62 @@ public class VaultCrypto {
         return isModernEncrypted(trimmed) || isLegacyEncrypted(trimmed);
     }
 
+    private static final java.util.regex.Pattern EMBEDDED_ENC_PATTERN =
+            java.util.regex.Pattern.compile("ENC\\(([^()]+)\\)");
+
+    /**
+     * Checks if a value contains one or more embedded ENC(...) tokens (e.g. within a JDBC URL or composite property).
+     *
+     * @param value candidate string
+     * @return true if embedded ENC(...) tokens are present
+     */
+    public boolean hasEmbeddedEncrypted(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        return EMBEDDED_ENC_PATTERN.matcher(value).find();
+    }
+
+    /**
+     * Decrypts all embedded ENC(...) tokens found within a composite string (e.g. within a JDBC URL or connection properties).
+     * Non-encrypted portions of the string remain unaltered.
+     *
+     * @param value candidate string with embedded tokens
+     * @return string with all embedded ENC(...) tokens decrypted
+     */
+    public String decryptEmbedded(String value) {
+        return decryptEmbedded(value, null);
+    }
+
+    /**
+     * Decrypts all embedded ENC(...) tokens found within a composite string with optional Authenticated Additional Data.
+     *
+     * @param value candidate string with embedded tokens
+     * @param aad optional Authenticated Additional Data
+     * @return string with all embedded ENC(...) tokens decrypted
+     */
+    public String decryptEmbedded(String value, byte[] aad) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+        java.util.regex.Matcher matcher = EMBEDDED_ENC_PATTERN.matcher(value);
+        if (!matcher.find()) {
+            return value;
+        }
+        StringBuilder sb = new StringBuilder();
+        int lastEnd = 0;
+        matcher.reset();
+        while (matcher.find()) {
+            sb.append(value, lastEnd, matcher.start());
+            String token = matcher.group(0);
+            String decrypted = decrypt(token, aad);
+            sb.append(decrypted != null ? decrypted : token);
+            lastEnd = matcher.end();
+        }
+        sb.append(value.substring(lastEnd));
+        return sb.toString();
+    }
+
     private boolean isModernEncrypted(String value) {
         return value.startsWith(PREFIX_ENC) && value.endsWith(SUFFIX_ENC) && value.length() > (PREFIX_ENC.length() + SUFFIX_ENC.length());
     }
@@ -358,8 +464,19 @@ public class VaultCrypto {
         String key = (keyAlias != null && !keyAlias.trim().isEmpty())
                 ? keyProvider.getKey(keyAlias.trim())
                 : keyProvider.getKey();
+        boolean isStrict = Boolean.getBoolean(SYS_PROP_STRICT)
+                || "true".equalsIgnoreCase(System.getenv(ENV_STRICT));
         if (key == null || key.trim().isEmpty()) {
+            if (isStrict) {
+                throw new SecurityException("Tomcat Vault is operating in strict production mode: " +
+                        "fallback to default development key is forbidden. " +
+                        "Please configure an external key via environment variable " + ENV_KEY +
+                        " or system property -D" + SYS_PROP_KEY);
+            }
             key = DEFAULT_DEV_KEY;
+        } else if (isStrict && DEFAULT_DEV_KEY.equals(key.trim())) {
+            throw new SecurityException("Tomcat Vault is operating in strict production mode: " +
+                    "fallback to default development key is forbidden.");
         }
         return key.trim();
     }
@@ -436,61 +553,66 @@ public class VaultCrypto {
     }
 
     /**
-     * Derives a 256-bit AES key using PBKDF2WithHmacSHA256, caching the result.
+     * Derives a 256-bit AES key using PBKDF2WithHmacSHA256, caching the result in LRU cache.
      */
     public static SecretKey getOrCreateGcmSecretKey(String passphrase) {
         byte[] salt = resolveKdfSalt();
         String cacheKey = hashCacheKey(passphrase, salt);
 
-        if (GCM_KEY_CACHE.size() > MAX_KEY_CACHE_SIZE) {
-            GCM_KEY_CACHE.clear();
+        SecretKey cached = GCM_KEY_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
         }
 
-        return GCM_KEY_CACHE.computeIfAbsent(cacheKey, k -> {
+        SecretKey derived = deriveGcmSecretKey(passphrase, salt);
+        GCM_KEY_CACHE.put(cacheKey, derived);
+        return derived;
+    }
+
+    private static SecretKey deriveGcmSecretKey(String passphrase, byte[] salt) {
+        try {
+            // If the key is already a 64-character hex string (32 bytes = 256 bits), parse directly
+            if (isHex64(passphrase)) {
+                byte[] raw = new byte[32];
+                for (int i = 0; i < 32; i++) {
+                    raw[i] = (byte) Integer.parseInt(passphrase.substring(i * 2, i * 2 + 2), 16);
+                }
+                SecretKey key = new SecretKeySpec(raw, "AES");
+                Arrays.fill(raw, (byte) 0);
+                return key;
+            }
+
+            // If the key is already a 32-byte Base64 key (e.g. from Java KeyStore or HSM), decode directly
+            if (isBase64Key32(passphrase)) {
+                byte[] raw = Base64.getDecoder().decode(passphrase);
+                SecretKey key = new SecretKeySpec(raw, "AES");
+                Arrays.fill(raw, (byte) 0);
+                return key;
+            }
+
+            // Standard PBKDF2 derivation with configurable iterations (OWASP recommendation: 600,000)
+            SecretKeyFactory factory = SecretKeyFactory.getInstance(KDF_PBKDF2);
+            char[] passChars = passphrase.toCharArray();
+            int iterations = resolvePbkdf2Iterations();
+            PBEKeySpec spec = new PBEKeySpec(passChars, salt, iterations, AES_KEY_LENGTH_BITS);
+            byte[] keyBytes = factory.generateSecret(spec).getEncoded();
+            spec.clearPassword();
+            Arrays.fill(passChars, '\0');
+            SecretKey key = new SecretKeySpec(keyBytes, "AES");
+            Arrays.fill(keyBytes, (byte) 0);
+            return key;
+        } catch (Exception e) {
+            // Fallback to SHA-256 digest if PBKDF2 is unavailable on legacy runtimes
             try {
-                // If the key is already a 64-character hex string (32 bytes = 256 bits), parse directly
-                if (isHex64(passphrase)) {
-                    byte[] raw = new byte[32];
-                    for (int i = 0; i < 32; i++) {
-                        raw[i] = (byte) Integer.parseInt(passphrase.substring(i * 2, i * 2 + 2), 16);
-                    }
-                    SecretKey key = new SecretKeySpec(raw, "AES");
-                    Arrays.fill(raw, (byte) 0);
-                    return key;
-                }
-
-                // If the key is already a 32-byte Base64 key (e.g. from Java KeyStore or HSM), decode directly
-                if (isBase64Key32(passphrase)) {
-                    byte[] raw = Base64.getDecoder().decode(passphrase);
-                    SecretKey key = new SecretKeySpec(raw, "AES");
-                    Arrays.fill(raw, (byte) 0);
-                    return key;
-                }
-
-                // Standard PBKDF2 derivation with configurable iterations (OWASP recommendation: 600,000)
-                SecretKeyFactory factory = SecretKeyFactory.getInstance(KDF_PBKDF2);
-                char[] passChars = passphrase.toCharArray();
-                int iterations = resolvePbkdf2Iterations();
-                PBEKeySpec spec = new PBEKeySpec(passChars, salt, iterations, AES_KEY_LENGTH_BITS);
-                byte[] keyBytes = factory.generateSecret(spec).getEncoded();
-                spec.clearPassword();
-                Arrays.fill(passChars, '\0');
+                MessageDigest digest = MessageDigest.getInstance(HASH_ALGO_SHA256);
+                byte[] keyBytes = digest.digest(passphrase.getBytes(StandardCharsets.UTF_8));
                 SecretKey key = new SecretKeySpec(keyBytes, "AES");
                 Arrays.fill(keyBytes, (byte) 0);
                 return key;
-            } catch (Exception e) {
-                // Fallback to SHA-256 digest if PBKDF2 is unavailable on legacy runtimes
-                try {
-                    MessageDigest digest = MessageDigest.getInstance(HASH_ALGO_SHA256);
-                    byte[] keyBytes = digest.digest(passphrase.getBytes(StandardCharsets.UTF_8));
-                    SecretKey key = new SecretKeySpec(keyBytes, "AES");
-                    Arrays.fill(keyBytes, (byte) 0);
-                    return key;
-                } catch (NoSuchAlgorithmException ex) {
-                    throw new VaultException("Failed to derive AES-256 key", ex);
-                }
+            } catch (NoSuchAlgorithmException ex) {
+                throw new VaultException("Failed to derive AES-256 key", ex);
             }
-        });
+        }
     }
 
     /**
@@ -500,32 +622,32 @@ public class VaultCrypto {
         byte[] salt = DEFAULT_DEV_IV.getBytes(StandardCharsets.UTF_8);
         String cacheKey = hashCacheKey(passphrase, salt);
 
-        if (CBC_KEY_CACHE.size() > MAX_KEY_CACHE_SIZE) {
-            CBC_KEY_CACHE.clear();
+        SecretKey cached = CBC_KEY_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
         }
 
-        return CBC_KEY_CACHE.computeIfAbsent(cacheKey, k -> {
-            try {
-                MessageDigest digester = MessageDigest.getInstance(HASH_ALGO_SHA512);
-                int maxKeyLen = Cipher.getMaxAllowedKeyLength("AES");
-                char[] keySalt = (passphrase.length() > maxKeyLen && maxKeyLen > 0)
-                        ? passphrase.substring(0, maxKeyLen).toCharArray()
-                        : passphrase.toCharArray();
+        try {
+            MessageDigest digester = MessageDigest.getInstance(HASH_ALGO_SHA512);
+            int maxKeyLen = Cipher.getMaxAllowedKeyLength("AES");
+            char[] keySalt = (passphrase.length() > maxKeyLen && maxKeyLen > 0)
+                    ? passphrase.substring(0, maxKeyLen).toCharArray()
+                    : passphrase.toCharArray();
 
-                for (char word : keySalt) {
-                    digester.update((byte) word);
-                }
-                String encode = Base64.getEncoder().encodeToString(digester.digest());
-                byte[] key = (encode.length() > 32)
-                        ? Base64.getDecoder().decode(encode.substring(0, 32))
-                        : Base64.getDecoder().decode(encode);
-                SecretKey secretKey = new SecretKeySpec(key, "AES");
-                Arrays.fill(key, (byte) 0);
-                return secretKey;
-            } catch (NoSuchAlgorithmException ex) {
-                throw new VaultException("Failed to derive legacy secret key", ex);
+            for (char word : keySalt) {
+                digester.update((byte) word);
             }
-        });
+            String encode = Base64.getEncoder().encodeToString(digester.digest());
+            byte[] key = (encode.length() > 32)
+                    ? Base64.getDecoder().decode(encode.substring(0, 32))
+                    : Base64.getDecoder().decode(encode);
+            SecretKey secretKey = new SecretKeySpec(key, "AES");
+            Arrays.fill(key, (byte) 0);
+            CBC_KEY_CACHE.put(cacheKey, secretKey);
+            return secretKey;
+        } catch (NoSuchAlgorithmException ex) {
+            throw new VaultException("Failed to derive legacy secret key", ex);
+        }
     }
 
     /**

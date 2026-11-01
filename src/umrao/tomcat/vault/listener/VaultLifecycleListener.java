@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,6 +37,7 @@ import javax.crypto.Cipher;
  * }</pre>
  * Validates cryptographic requirements (JCE unlimited strength, key provider health, strict mode),
  * and manages JMX monitoring and audit logging lifecycles.
+ * @author Vivek Umrao
  */
 public class VaultLifecycleListener implements LifecycleListener {
 

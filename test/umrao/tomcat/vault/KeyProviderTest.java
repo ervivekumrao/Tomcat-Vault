@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,13 @@
 
 package umrao.tomcat.vault;
 
-import umrao.tomcat.vault.key.*;
+import umrao.tomcat.vault.key.CloudVaultKeyProvider;
+import umrao.tomcat.vault.key.CompositeKeyProvider;
+import umrao.tomcat.vault.key.DefaultKeyProvider;
+import umrao.tomcat.vault.key.EnvironmentKeyProvider;
+import umrao.tomcat.vault.key.FileKeyProvider;
+import umrao.tomcat.vault.key.KeyProvider;
+import umrao.tomcat.vault.key.SystemPropertyKeyProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,8 +39,16 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * @author Vivek Umrao
+ */
 public class KeyProviderTest {
 
     @TempDir

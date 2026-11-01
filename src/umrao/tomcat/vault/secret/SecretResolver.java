@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package umrao.tomcat.vault.secret;
 /**
  * Service Provider Interface (SPI) for dynamically resolving external secrets from
  * cloud providers and enterprise secret stores (e.g. AWS Secrets Manager, HashiCorp Vault, Azure Key Vault).
+ * @author Vivek Umrao
  */
 public interface SecretResolver {
 

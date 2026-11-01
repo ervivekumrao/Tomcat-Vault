@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import java.util.logging.Logger;
  * Security Information and Event Management (SIEM) Audit Logger.
  * Emits structured JSON audit records for security-relevant operations
  * (credential decryption, key retrieval, verification results) without ever logging plaintext credentials.
+ * @author Vivek Umrao
  */
 @SuppressWarnings("unused")
 public class VaultAuditLogger {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,12 +29,16 @@ import java.util.regex.Pattern;
  * Prevents sensitive database passwords, keys, and tokens from being exposed
  * in cleartext when Tomcat connection pools are queried via JMX MBeans
  * (e.g., JConsole, VisualVM, or Prometheus JMX Exporter).
+ * @author Vivek Umrao
  */
 @SuppressWarnings("unused")
 public final class VaultJmxSanitizer {
 
     public static final String MASK = "******";
-    private static final Pattern URL_CREDENTIAL_PATTERN = Pattern.compile("(?i)(:[^:@/]+)@");
+    private static final Pattern URL_CREDENTIAL_PATTERN = Pattern.compile("(?i)(:[^:@/?;#]+)@");
+    private static final Pattern ORACLE_THIN_PATTERN = Pattern.compile("(?i)(:[a-zA-Z0-9_.-]+)/([^:@/?;#]+)@");
+    private static final Pattern ORACLE_TNS_PASSWORD_PATTERN = Pattern.compile("(?i)\\(PASSWORD\\s*=\\s*[^)]+\\)");
+    private static final Pattern PARAM_CREDENTIAL_PATTERN = Pattern.compile("(?i)(password|pwd|secret|token|apikey|credential)\\s*=\\s*([^&;\\s)]+)");
 
     private VaultJmxSanitizer() {
         // Prevent instantiation
@@ -54,7 +58,7 @@ public final class VaultJmxSanitizer {
 
         if (ReferencePropertyDecryptor.isSensitive(attributeName)) {
             String strVal = rawValue.toString();
-            // If it's a URL, mask embedded credentials like :password@
+            // If it's a URL, mask embedded credentials
             if (attributeName.toLowerCase().contains("url")) {
                 return sanitizeUrl(strVal);
             }
@@ -83,7 +87,9 @@ public final class VaultJmxSanitizer {
     }
 
     /**
-     * Masks any password embedded inside a JDBC connection URL.
+     * Masks any password or sensitive credential embedded inside a JDBC connection URL.
+     * Supports standard user:pass@host, Oracle thin scott/tiger@host, Oracle TNS (PASSWORD=...),
+     * and query/connection parameters (password=..., pwd=..., etc.).
      *
      * @param url candidate JDBC URL
      * @return sanitized URL
@@ -92,10 +98,26 @@ public final class VaultJmxSanitizer {
         if (url == null || url.isEmpty()) {
             return url;
         }
-        Matcher matcher = URL_CREDENTIAL_PATTERN.matcher(url);
-        if (matcher.find()) {
-            return matcher.replaceAll(":******@");
+        if (url.indexOf('@') == -1 && url.indexOf('=') == -1) {
+            return url;
         }
-        return url;
+        String sanitized = url;
+        Matcher m1 = URL_CREDENTIAL_PATTERN.matcher(sanitized);
+        if (m1.find()) {
+            sanitized = m1.replaceAll(":******@");
+        }
+        Matcher m2 = ORACLE_THIN_PATTERN.matcher(sanitized);
+        if (m2.find()) {
+            sanitized = m2.replaceAll("$1/******@");
+        }
+        Matcher m3 = ORACLE_TNS_PASSWORD_PATTERN.matcher(sanitized);
+        if (m3.find()) {
+            sanitized = m3.replaceAll("(PASSWORD=******)");
+        }
+        Matcher m4 = PARAM_CREDENTIAL_PATTERN.matcher(sanitized);
+        if (m4.find()) {
+            sanitized = m4.replaceAll("$1=******");
+        }
+        return sanitized;
     }
 }

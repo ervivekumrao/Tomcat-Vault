@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,6 +37,7 @@ import java.util.function.Function;
  * The file path can be specified via system property {@code tomcat.vault.keyfile},
  * environment variable {@code TOMCAT_VAULT_KEYFILE}, or explicit path in constructor.
  * Enforces POSIX permission warnings and automatically detects key file changes for Kubernetes Secret mounts.
+ * @author Vivek Umrao
  */
 public class FileKeyProvider implements KeyProvider {
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import java.util.logging.Logger;
  * Logs a high-visibility warning to remind administrators to supply an external key in production.
  * In strict production mode (tomcat.vault.strict=true or TOMCAT_VAULT_STRICT=true),
  * fallback to the development key is strictly forbidden and throws a SecurityException.
+ * @author Vivek Umrao
  */
 public class DefaultKeyProvider implements KeyProvider {
 

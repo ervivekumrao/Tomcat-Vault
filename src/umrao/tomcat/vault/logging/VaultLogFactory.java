@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,13 +25,19 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.logging.*;
+import java.util.logging.FileHandler;
+import java.util.logging.Formatter;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 /**
  * Factory for creating {@link VaultLog} instances.
  * Automatically delegates to Tomcat JULI ({@code org.apache.juli.logging.LogFactory})
  * when running inside Apache Tomcat, or standard Java Util Logging (JUL) otherwise.
  * Supports dedicated debug file logging via {@code -Dtomcat.vault.log.file} or {@code -Dtomcat.vault.debug=true}.
+ * @author Vivek Umrao
  */
 @SuppressWarnings("unused")
 public final class VaultLogFactory {
@@ -189,7 +195,9 @@ public final class VaultLogFactory {
             lr.setLoggerName(loggerName);
             lr.setThrown(thrown);
             h.publish(lr);
-            h.flush();
+            if (level.intValue() >= Level.SEVERE.intValue()) {
+                h.flush();
+            }
         }
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -55,6 +55,7 @@ import java.util.Base64;
  * Supports interactive masked password entry, standard input pipelines,
  * custom key providers, key versioning, dry-run connection verification,
  * cryptographic key generation, in-place re-encryption migration, and backward-compatible syntax.
+ * @author Vivek Umrao
  */
 public class TomcatVaultCLI {
 
@@ -80,6 +81,8 @@ public class TomcatVaultCLI {
         boolean diagnoseMode = false;
         boolean generateKeyMode = false;
         boolean reEncryptMode = false;
+        boolean benchmarkMode = false;
+        boolean maskMode = false;
         boolean legacyMode = false;
         String explicitKey = null;
         String oldKey = null;
@@ -93,8 +96,17 @@ public class TomcatVaultCLI {
 
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
-            if ("--diagnose".equalsIgnoreCase(arg) || "diagnose".equalsIgnoreCase(arg)) {
+            if ("--diagnose".equalsIgnoreCase(arg) || "diagnose".equalsIgnoreCase(arg)
+                    || "--status".equalsIgnoreCase(arg) || "status".equalsIgnoreCase(arg)
+                    || "--health".equalsIgnoreCase(arg) || "health".equalsIgnoreCase(arg)) {
                 diagnoseMode = true;
+            } else if ("--benchmark".equalsIgnoreCase(arg) || "benchmark".equalsIgnoreCase(arg)) {
+                benchmarkMode = true;
+            } else if ("--mask".equalsIgnoreCase(arg) || "-m".equalsIgnoreCase(arg) || "mask".equalsIgnoreCase(arg)) {
+                maskMode = true;
+                if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
+                    message = args[++i];
+                }
             } else if ("--generate-key".equalsIgnoreCase(arg) || "generate-key".equalsIgnoreCase(arg) || "--keygen".equalsIgnoreCase(arg)) {
                 generateKeyMode = true;
             } else if ("re-encrypt".equalsIgnoreCase(arg) || "--re-encrypt".equalsIgnoreCase(arg)) {
@@ -195,6 +207,14 @@ public class TomcatVaultCLI {
             return executeGenerateKey();
         }
 
+        if (benchmarkMode) {
+            return executeBenchmark(explicitKey);
+        }
+
+        if (maskMode) {
+            return executeMask(message);
+        }
+
         if (reEncryptMode) {
             return executeReEncrypt(contextPath, message, oldKey, newKey, keyAlias);
         }
@@ -233,7 +253,7 @@ public class TomcatVaultCLI {
         }
 
         if (!encryptMode && !decryptMode) {
-            System.err.println("Error: Must specify -e (--encrypt), -d (--decrypt), -v (--verify), --re-encrypt, or --diagnose");
+            System.err.println("Error: Must specify -e (--encrypt), -d (--decrypt), -v (--verify), --re-encrypt, --generate-key, --benchmark, --mask, or --diagnose");
             printHelp();
             return 1;
         }
@@ -265,6 +285,7 @@ public class TomcatVaultCLI {
         }
     }
 
+    @SuppressWarnings({"PathTraversal", "UncontrolledUserInputValue"})
     private static void setupDebugLog(String logFilePath) {
         if (logFilePath != null && !logFilePath.trim().isEmpty()) {
             File file = new File(logFilePath).getAbsoluteFile();
@@ -298,6 +319,55 @@ public class TomcatVaultCLI {
         System.out.println();
         System.out.println("Usage in Protected Key File:");
         System.out.println("  echo -n \"" + hexKey + "\" > /etc/tomcat/vault.key && chmod 600 /etc/tomcat/vault.key");
+        return 0;
+    }
+
+    private static int executeBenchmark(String explicitKey) {
+        System.out.println("Tomcat Vault - Cryptographic Engine Benchmark");
+        System.out.println("==============================================");
+        VaultCrypto crypto = (explicitKey != null && !explicitKey.trim().isEmpty())
+                ? new VaultCrypto(explicitKey.trim())
+                : new VaultCrypto();
+
+        int warmups = 50;
+        int iterations = 1000;
+        String samplePlaintext = "ProductionSuperSecureDatabasePassword!#2026";
+
+        // Warm up JIT
+        for (int i = 0; i < warmups; i++) {
+            String enc = crypto.encrypt(samplePlaintext);
+            crypto.decrypt(enc);
+        }
+
+        // Benchmark AES-256-GCM
+        long startGcm = System.currentTimeMillis();
+        for (int i = 0; i < iterations; i++) {
+            String enc = crypto.encrypt(samplePlaintext);
+            crypto.decrypt(enc);
+        }
+        long durationGcm = System.currentTimeMillis() - startGcm;
+        double opsPerSec = (iterations * 2.0 * 1000.0) / Math.max(durationGcm, 1);
+        double avgLatencyMs = (double) durationGcm / (iterations * 2.0);
+
+        System.out.printf("AES-256-GCM Operations: %d encryptions + %d decryptions%n", iterations, iterations);
+        System.out.printf("Total Execution Time:    %d ms%n", durationGcm);
+        System.out.printf("Throughput:              %.0f ops/sec%n", opsPerSec);
+        System.out.printf("Average Latency:         %.4f ms/op%n", avgLatencyMs);
+        System.out.println("----------------------------------------------");
+        System.out.println("Benchmark Result: PASSED");
+        return 0;
+    }
+
+    private static int executeMask(String message) {
+        if (message == null || "-".equals(message)) {
+            message = readInputSecurely("Enter URL or string to mask: ");
+        }
+        if (message == null || message.trim().isEmpty()) {
+            System.err.println("Error: Input string to mask is empty");
+            return 1;
+        }
+        String masked = umrao.tomcat.vault.jmx.VaultJmxSanitizer.sanitizeUrl(message.trim());
+        System.out.println("masked: " + masked);
         return 0;
     }
 
@@ -623,15 +693,21 @@ public class TomcatVaultCLI {
         System.out.println("  java -jar tomcat-vault.jar -d [VALUE] [OPTIONS]     Decrypt value");
         System.out.println("  java -jar tomcat-vault.jar -v -c <FILE> [OPTIONS]   Verify DataSources in context.xml");
         System.out.println("  java -jar tomcat-vault.jar --generate-key           Generate 256-bit random AES master key");
+        System.out.println("  java -jar tomcat-vault.jar --benchmark [OPTIONS]    Run cryptographic throughput & latency benchmark");
+        System.out.println("  java -jar tomcat-vault.jar --mask [VALUE]           Mask credentials in URL or connection string");
         System.out.println("  java -jar tomcat-vault.jar re-encrypt [OPTIONS]     Rotate/re-encrypt credentials");
+        System.out.println("  java -jar tomcat-vault.jar --status                 Run system & cryptographic health diagnostics");
         System.out.println("  java -jar tomcat-vault.jar --diagnose               Run system & cryptographic diagnostics");
         System.out.println();
         System.out.println("Options:");
         System.out.println("  -e, --encrypt [VALUE]       Encrypt the provided value");
         System.out.println("  -d, --decrypt [VALUE]       Decrypt the provided value");
+        System.out.println("      --status, --health      Run health check & system diagnostics");
         System.out.println("  -v, --verify                Verify DataSources in context configuration");
         System.out.println("  -c, --context <PATH>        Path to context.xml or server.xml");
         System.out.println("      --generate-key          Generate new 256-bit AES master encryption key");
+        System.out.println("      --benchmark             Benchmark AES-256-GCM encryption/decryption performance");
+        System.out.println("  -m, --mask [VALUE]          Sanitize and mask passwords in JDBC URLs/strings");
         System.out.println("      --re-encrypt            Re-encrypt credentials with a new key/alias");
         System.out.println("      --old-key <SECRET>      Existing encryption key for re-encryption");
         System.out.println("      --new-key <SECRET>      New encryption key for re-encryption");

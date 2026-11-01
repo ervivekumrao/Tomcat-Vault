@@ -93,6 +93,7 @@ tasks.jar {
 }
 
 tasks.test {
+    dependsOn(tasks.jar)
     useJUnitPlatform()
     testLogging {
         events("passed", "skipped", "failed")

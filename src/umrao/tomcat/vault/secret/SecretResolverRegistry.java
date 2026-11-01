@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Enables zero-static-key configuration by resolving secrets directly from AWS Secrets Manager,
  * HashiCorp Vault, Azure Key Vault, and Google Cloud Secret Manager.
  * Supports automatic discovery via Java {@link ServiceLoader} SPI.
+ * @author Vivek Umrao
  */
 @SuppressWarnings("unused")
 public class SecretResolverRegistry {
@@ -37,7 +38,24 @@ public class SecretResolverRegistry {
     private static final VaultLog LOGGER = VaultLogFactory.getLog(SecretResolverRegistry.class);
     private static final SecretResolverRegistry INSTANCE = new SecretResolverRegistry();
 
+    private static final long DEFAULT_CACHE_TTL_MS = 300_000L; // 5 minutes default
+
+    private static final class CachedSecret {
+        final String value;
+        final long expiresAt;
+
+        CachedSecret(String value, long expiresAt) {
+            this.value = value;
+            this.expiresAt = expiresAt;
+        }
+
+        boolean isExpired() {
+            return expiresAt > 0 && System.currentTimeMillis() > expiresAt;
+        }
+    }
+
     private final List<SecretResolver> resolvers = new CopyOnWriteArrayList<>();
+    private final java.util.concurrent.ConcurrentMap<String, CachedSecret> secretCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public static SecretResolverRegistry getInstance() {
         return INSTANCE;
@@ -45,6 +63,24 @@ public class SecretResolverRegistry {
 
     public SecretResolverRegistry() {
         registerDefaultResolvers();
+    }
+
+    public void clearCache() {
+        secretCache.clear();
+    }
+
+    private long resolveCacheTtl() {
+        String prop = System.getProperty("tomcat.vault.secret.cache.ttl.ms");
+        if (prop == null || prop.trim().isEmpty()) {
+            prop = System.getenv("TOMCAT_VAULT_SECRET_CACHE_TTL_MS");
+        }
+        if (prop != null && !prop.trim().isEmpty()) {
+            try {
+                return Long.parseLong(prop.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return DEFAULT_CACHE_TTL_MS;
     }
 
     private void registerDefaultResolvers() {
@@ -80,10 +116,12 @@ public class SecretResolverRegistry {
 
     public void clearResolvers() {
         resolvers.clear();
+        secretCache.clear();
     }
 
     public void resetDefaultResolvers() {
         resolvers.clear();
+        secretCache.clear();
         registerDefaultResolvers();
     }
 
@@ -105,6 +143,15 @@ public class SecretResolverRegistry {
             return expression;
         }
         String trimmed = expression.trim();
+
+        long ttl = resolveCacheTtl();
+        if (ttl > 0) {
+            CachedSecret cached = secretCache.get(trimmed);
+            if (cached != null && !cached.isExpired()) {
+                return cached.value;
+            }
+        }
+
         boolean matchedAny = false;
 
         for (SecretResolver resolver : resolvers) {
@@ -113,6 +160,9 @@ public class SecretResolverRegistry {
                 try {
                     String resolved = resolver.resolve(trimmed);
                     if (resolved != null) {
+                        if (ttl > 0) {
+                            secretCache.put(trimmed, new CachedSecret(resolved, System.currentTimeMillis() + ttl));
+                        }
                         return resolved;
                     }
                 } catch (Exception e) {
@@ -130,6 +180,57 @@ public class SecretResolverRegistry {
         }
 
         return expression;
+    }
+
+    private static final java.util.regex.Pattern EMBEDDED_SECRET_PATTERN =
+            java.util.regex.Pattern.compile("(?i)(AWS_SECRET|VAULT|AZURE_VAULT|GCP_SECRET)\\(([^()]+)\\)");
+
+    /**
+     * Checks if a value contains one or more embedded cloud secret expressions (e.g. AWS_SECRET(...) inside a URL).
+     *
+     * @param value candidate string
+     * @return true if embedded secret expressions are present
+     */
+    public boolean hasResolvable(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return false;
+        }
+        if (isResolvable(value)) {
+            return true;
+        }
+        return EMBEDDED_SECRET_PATTERN.matcher(value).find();
+    }
+
+    /**
+     * Resolves all embedded cloud secret expressions within a composite string (such as a JDBC URL).
+     * Non-matching portions of the string are preserved unchanged.
+     *
+     * @param value candidate string with embedded expressions
+     * @return resolved string
+     */
+    public String resolveEmbedded(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return value;
+        }
+        if (isResolvable(value)) {
+            return resolve(value);
+        }
+        java.util.regex.Matcher matcher = EMBEDDED_SECRET_PATTERN.matcher(value);
+        if (!matcher.find()) {
+            return value;
+        }
+        StringBuilder sb = new StringBuilder();
+        int lastEnd = 0;
+        matcher.reset();
+        while (matcher.find()) {
+            sb.append(value, lastEnd, matcher.start());
+            String token = matcher.group(0);
+            String resolved = resolve(token);
+            sb.append(resolved != null ? resolved : token);
+            lastEnd = matcher.end();
+        }
+        sb.append(value.substring(lastEnd));
+        return sb.toString();
     }
 
     /**

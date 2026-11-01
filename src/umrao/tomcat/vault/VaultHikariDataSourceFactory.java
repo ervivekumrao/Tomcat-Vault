@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import java.util.Hashtable;
  * Intercepts connection pool definitions in {@code context.xml} or {@code server.xml},
  * decrypts encrypted credentials (such as {@code dataSource.password}, {@code password},
  * {@code dataSource.user}, and {@code jdbcUrl}), and delegates to HikariCP's JNDI factory.
+ * @author Vivek Umrao
  */
 public class VaultHikariDataSourceFactory implements ObjectFactory {
 
@@ -106,8 +107,9 @@ public class VaultHikariDataSourceFactory implements ObjectFactory {
             }
         }
 
+        Object result;
         try {
-            return factory.getObjectInstance(obj, name, nameCtx, environment);
+            result = factory.getObjectInstance(obj, name, nameCtx, environment);
         } catch (InvocationTargetException ite) {
             Throwable target = ite.getTargetException() != null ? ite.getTargetException() : ite;
             if (target instanceof Exception) {
@@ -115,5 +117,10 @@ public class VaultHikariDataSourceFactory implements ObjectFactory {
             }
             throw new RuntimeException(target);
         }
+
+        if (result != null && name != null) {
+            umrao.tomcat.vault.refresh.VaultCredentialReloader.getInstance().registerDataSource(name.toString(), result);
+        }
+        return result;
     }
 }

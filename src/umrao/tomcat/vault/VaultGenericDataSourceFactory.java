@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * (such as Vibur DBCP, C3P0, BoneCP, or custom enterprise pools).
  * Decrypts all sensitive properties in the {@link Reference} before passing them
  * to the delegate factory specified via the {@code delegateFactory} configuration attribute.
+ * @author Vivek Umrao
  */
 public class VaultGenericDataSourceFactory implements ObjectFactory {
 
@@ -77,40 +78,52 @@ public class VaultGenericDataSourceFactory implements ObjectFactory {
             throw new IllegalArgumentException("No delegateFactory specified for VaultGenericDataSourceFactory");
         }
 
-        ObjectFactory factory = factoryCache.get(targetFactoryClassName);
-        if (factory == null) {
-            try {
-                ClassLoader cl = Thread.currentThread().getContextClassLoader();
-                if (cl == null) {
-                    cl = getClass().getClassLoader();
-                }
-                Class<?> factoryClass = Class.forName(targetFactoryClassName, true, cl);
-                Object factoryInstance = factoryClass.getDeclaredConstructor().newInstance();
-                if (factoryInstance instanceof ObjectFactory) {
-                    factory = (ObjectFactory) factoryInstance;
-                } else {
-                    final Method method = factoryClass.getMethod("getObjectInstance", Object.class, Name.class, Context.class, Hashtable.class);
-                    factory = (o, n, c, env) -> {
-                        try {
-                            return method.invoke(factoryInstance, o, n, c, env);
-                        } catch (InvocationTargetException ite) {
-                            Throwable target = ite.getTargetException() != null ? ite.getTargetException() : ite;
-                            if (target instanceof Exception) {
-                                throw (Exception) target;
+        final String finalTargetClassName = targetFactoryClassName;
+        ObjectFactory factory;
+        try {
+            factory = factoryCache.computeIfAbsent(finalTargetClassName, className -> {
+                try {
+                    ClassLoader cl = Thread.currentThread().getContextClassLoader();
+                    if (cl == null) {
+                        cl = getClass().getClassLoader();
+                    }
+                    Class<?> factoryClass = Class.forName(className, true, cl);
+                    Object factoryInstance = factoryClass.getDeclaredConstructor().newInstance();
+                    if (factoryInstance instanceof ObjectFactory) {
+                        return (ObjectFactory) factoryInstance;
+                    } else {
+                        final Method method = factoryClass.getMethod("getObjectInstance", Object.class, Name.class, Context.class, Hashtable.class);
+                        method.setAccessible(true);
+                        return (o, n, c, env) -> {
+                            try {
+                                return method.invoke(factoryInstance, o, n, c, env);
+                            } catch (InvocationTargetException ite) {
+                                Throwable target = ite.getTargetException() != null ? ite.getTargetException() : ite;
+                                if (target instanceof Exception) {
+                                    throw (Exception) target;
+                                }
+                                throw new RuntimeException(target);
                             }
-                            throw new RuntimeException(target);
-                        }
-                    };
+                        };
+                    }
+                } catch (Exception e) {
+                    LOGGER.error("Failed to delegate to factory class: " + className, e);
+                    if (e instanceof RuntimeException) {
+                        throw (RuntimeException) e;
+                    }
+                    throw new RuntimeException(e);
                 }
-                factoryCache.put(targetFactoryClassName, factory);
-            } catch (Exception e) {
-                LOGGER.error("Failed to delegate to factory class: " + targetFactoryClassName, e);
-                throw e;
+            });
+        } catch (RuntimeException e) {
+            if (e.getCause() instanceof Exception) {
+                throw (Exception) e.getCause();
             }
+            throw e;
         }
 
+        Object result;
         try {
-            return factory.getObjectInstance(obj, name, nameCtx, environment);
+            result = factory.getObjectInstance(obj, name, nameCtx, environment);
         } catch (InvocationTargetException ite) {
             Throwable target = ite.getTargetException() != null ? ite.getTargetException() : ite;
             if (target instanceof Exception) {
@@ -118,5 +131,10 @@ public class VaultGenericDataSourceFactory implements ObjectFactory {
             }
             throw new RuntimeException(target);
         }
+
+        if (result != null && name != null) {
+            umrao.tomcat.vault.refresh.VaultCredentialReloader.getInstance().registerDataSource(name.toString(), result);
+        }
+        return result;
     }
 }

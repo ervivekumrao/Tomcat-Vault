@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ package umrao.tomcat.vault.key;
  * Strategy interface for resolving encryption/decryption keys.
  * Supports external key management from environment variables, system properties,
  * key files, and enterprise secret vaults.
+ * @author Vivek Umrao
  */
 @SuppressWarnings("unused")
 public interface KeyProvider {

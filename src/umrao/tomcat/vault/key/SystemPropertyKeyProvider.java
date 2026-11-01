@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import umrao.tomcat.vault.VaultConstants;
 /**
  * Resolves the encryption key from Java System Properties (e.g. passed via -D in CATALINA_OPTS).
  * Checks {@code tomcat.vault.key} and falls back to {@code tomcat.encryption.key}.
+ * @author Vivek Umrao
  */
 public class SystemPropertyKeyProvider implements KeyProvider {
 

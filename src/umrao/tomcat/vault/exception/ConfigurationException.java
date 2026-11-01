@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import java.io.Serial;
 
 /**
  * Thrown when an invalid configuration is detected (e.g. strict mode violation or missing delegate).
+ * @author Vivek Umrao
  */
 public class ConfigurationException extends VaultException {
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import java.util.function.Function;
 /**
  * Resolves the encryption key from OS environment variables.
  * Checks {@code TOMCAT_VAULT_KEY} and falls back to {@code TOMCAT_ENCRYPTION_KEY}.
+ * @author Vivek Umrao
  */
 public class EnvironmentKeyProvider implements KeyProvider {
 

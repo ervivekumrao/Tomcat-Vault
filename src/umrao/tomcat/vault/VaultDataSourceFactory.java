@@ -1,5 +1,5 @@
 /*
- * Copyright 2024-2026 the original author or authors.
+ * Copyright 2024-2026 the original author or authors (Vivek Umrao).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import java.util.Hashtable;
  * Automatically decrypts encrypted properties before creating the pool and registers
  * the pool with the dynamic credential reloader.
  * Compatible with all Tomcat versions.
+ * @author Vivek Umrao
  */
 public class VaultDataSourceFactory extends DataSourceFactory {
 
