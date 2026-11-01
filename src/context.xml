@@ -27,8 +27,8 @@ Generate encrypted passwords using:
             name="jdbc/OracleData"
             auth="Container"
             type="javax.sql.DataSource"
-            driverClassName="oracle.jdbc.OracleDriver"
-            factory="org.apache.tomcat.vault.VaultBasicDataSourceFactory"
+            driverClassName="oracle.jdbc.Driver"
+            factory="umrao.tomcat.vault.VaultBasicDataSourceFactory"
             validationQuery="SELECT 1 from dual"
             maxIdle="2"
             maxWaitMillis="5000"
@@ -37,14 +37,14 @@ Generate encrypted passwords using:
             url="jdbc:oracle:thin:@DB_HOST:1521:ORCL"
             maxTotal="20" />
 
-    <!-- Example 2: Tomcat JDBC Connection Pool (or backward-compatible factory) -->
+    <!-- Example 2: Tomcat JDBC Connection Pool -->
     <!--
     <Resource
             name="jdbc/MSSQLData"
             auth="Container"
             type="javax.sql.DataSource"
             driverClassName="com.microsoft.sqlserver.jdbc.SQLServerDriver"
-            factory="org.apache.tomcat.vault.VaultDataSourceFactory"
+            factory="umrao.tomcat.vault.VaultDataSourceFactory"
             maxActive="50"
             maxIdle="10"
             maxWait="10000"

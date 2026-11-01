@@ -4,7 +4,7 @@
 [![Tomcat](https://img.shields.io/badge/Apache%20Tomcat-7%20--%2011-orange.svg)](https://tomcat.apache.org/)
 [![Security](https://img.shields.io/badge/Crypto-AES--256--GCM-green.svg)](https://csrc.nist.gov/publications/detail/sp/800-38d/final)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-65%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-84%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/Coverage-86.7%25%20instruction-success.svg)]()
 
 Enterprise-grade cryptographic credential manager, diagnostic verifier, and JNDI DataSource factory for Apache Tomcat connection pools. Eliminates cleartext database credentials from `context.xml` and `server.xml` using authenticated encryption (AES-256-GCM), dynamic initialization vectors, pluggable key providers, cloud vault connectors, and zero-leak logging.
@@ -47,24 +47,24 @@ Enterprise-grade cryptographic credential manager, diagnostic verifier, and JNDI
 - **Multi-Key & Key Versioning Architecture (P2):**
   Support for zero-downtime key rotation via tagged envelopes (`ENC(v1:...)`, `ENC(v2:...)`, `ENC(key-alias=...)`).
 - **Universal Connection Pool Support (P3):**
-  - **HikariCP Pool:** [`VaultHikariDataSourceFactory`](src/org/apache/tomcat/vault/VaultHikariDataSourceFactory.java)
-  - **Tomcat DBCP2 Pool:** [`VaultBasicDataSourceFactory`](src/org/apache/tomcat/vault/VaultBasicDataSourceFactory.java)
-  - **Tomcat JDBC Pool:** [`VaultDataSourceFactory`](src/org/apache/tomcat/vault/VaultDataSourceFactory.java)
-  - **Universal Pool Adapter:** [`VaultGenericDataSourceFactory`](src/org/apache/tomcat/vault/VaultGenericDataSourceFactory.java) (for Vibur DBCP, C3P0, BoneCP)
+  - **HikariCP Pool:** [`VaultHikariDataSourceFactory`](src/umrao/tomcat/vault/VaultHikariDataSourceFactory.java)
+  - **Tomcat DBCP2 Pool:** [`VaultBasicDataSourceFactory`](src/umrao/tomcat/vault/VaultBasicDataSourceFactory.java)
+  - **Tomcat JDBC Pool:** [`VaultDataSourceFactory`](src/umrao/tomcat/vault/VaultDataSourceFactory.java)
+  - **Universal Pool Adapter:** [`VaultGenericDataSourceFactory`](src/umrao/tomcat/vault/VaultGenericDataSourceFactory.java) (for Vibur DBCP, C3P0, BoneCP)
 - **PKCS#12 & Java KeyStore Integration (P4):**
-  Hardware Security Module (HSM) and KeyStore provider ([`KeyStoreKeyProvider`](src/org/apache/tomcat/vault/key/KeyStoreKeyProvider.java)) supporting PKCS#12 and JKS files compliant with FIPS 140-2 and PCI-DSS.
+  Hardware Security Module (HSM) and KeyStore provider ([`KeyStoreKeyProvider`](src/umrao/tomcat/vault/key/KeyStoreKeyProvider.java)) supporting PKCS#12 and JKS files compliant with FIPS 140-2 and PCI-DSS.
 - **Cloud & Enterprise Secret Connectors (P5):**
   Direct resolution for AWS Secrets Manager (`AWS_SECRET(...)`), HashiCorp Vault (`VAULT(...)`), Azure Key Vault (`AZURE_VAULT(...)`), and GCP Secret Manager (`GCP_SECRET(...)`).
 - **Tomcat-Supported File Logging for Debugging:**
   Native integration with Tomcat JULI `AsyncFileHandler` and dedicated file logging (`-Dtomcat.vault.log.file=...`) for instant debugging without affecting global server logs.
 - **Dynamic Credential Refresh Coordinator:**
-  [`VaultCredentialReloader`](src/org/apache/tomcat/vault/refresh/VaultCredentialReloader.java) coordinator to evict stale connections and re-authenticate connection pools upon credential rotation without bouncing Tomcat.
+  [`VaultCredentialReloader`](src/umrao/tomcat/vault/refresh/VaultCredentialReloader.java) coordinator to evict stale connections and re-authenticate connection pools upon credential rotation without bouncing Tomcat.
 - **JMX MBean Credential Masking:**
-  [`VaultJmxSanitizer`](src/org/apache/tomcat/vault/jmx/VaultJmxSanitizer.java) automatically masks passwords and embedded URL credentials with `******` in JMX trees (JConsole, VisualVM, Prometheus).
+  [`VaultJmxSanitizer`](src/umrao/tomcat/vault/jmx/VaultJmxSanitizer.java) automatically masks passwords and embedded URL credentials with `******` in JMX trees (JConsole, VisualVM, Prometheus).
 - **Kubernetes Secret File Auto-Reload:**
-  [`FileKeyProvider`](src/org/apache/tomcat/vault/key/FileKeyProvider.java) automatically detects file timestamp/size changes on disk and reloads updated Kubernetes Secret mounts dynamically.
+  [`FileKeyProvider`](src/umrao/tomcat/vault/key/FileKeyProvider.java) automatically detects file timestamp/size changes on disk and reloads updated Kubernetes Secret mounts dynamically.
 - **SIEM Structured JSON Audit Logging:**
-  [`VaultAuditLogger`](src/org/apache/tomcat/vault/audit/VaultAuditLogger.java) emits tamper-evident structured audit events for security operations without logging plaintext credentials.
+  [`VaultAuditLogger`](src/umrao/tomcat/vault/audit/VaultAuditLogger.java) emits tamper-evident structured audit events for security operations without logging plaintext credentials.
 
 ---
 
@@ -72,15 +72,16 @@ Enterprise-grade cryptographic credential manager, diagnostic verifier, and JNDI
 
 ### 1. Build the JAR
 
-Using Gradle:
+Using the Gradle Wrapper (Linux / macOS / WSL):
 ```bash
-gradle clean jar --no-daemon
+./gradlew clean jar
 ```
 
-Or using Maven:
-```bash
-mvn clean package
+On Windows (Command Prompt / PowerShell):
+```cmd
+gradlew.bat clean jar
 ```
+
 The output executable JAR is generated at `build/libs/tomcat-vault-2.0.0.jar`.
 
 ---
@@ -152,14 +153,50 @@ Tomcat Vault: Verifying DataSource configurations in /opt/tomcat/conf/context.xm
 Verification Summary: 2/2 resources passed.
 ```
 
+#### D. System & Cryptographic Self-Diagnostics
+Run comprehensive diagnostics on JCE unlimited strength, AES-GCM cipher availability, PBKDF2 derivation, and key provider status:
+```bash
+java -jar build/libs/tomcat-vault-2.0.0.jar --diagnose
+```
+
+#### E. Cryptographic Key Generator (New)
+Generate a cryptographically secure 256-bit AES master key in both Raw Hex and Base64 formats:
+```bash
+java -jar build/libs/tomcat-vault-2.0.0.jar --generate-key
+```
+
+#### F. In-Place Re-Encryption & Key Rotation (New)
+Rotate credentials in `context.xml` or individual ciphertexts from an old key to a new key/alias:
+```bash
+# Re-encrypt an entire context.xml file in place (creates .bak backup automatically):
+java -jar build/libs/tomcat-vault-2.0.0.jar re-encrypt --context /opt/tomcat/conf/context.xml \
+    --old-key "OldSecretKey123" --new-key "NewSecretKey456" --new-alias v2
+
+# Re-encrypt an individual ciphertext string:
+java -jar build/libs/tomcat-vault-2.0.0.jar re-encrypt "ENC(axVXz...)" \
+    --old-key "OldSecretKey123" --new-key "NewSecretKey456" --new-alias v2
+```
+
 ---
 
 ## Tomcat Setup & Configuration
 
+### Container-Level Lifecycle Listener (`server.xml`)
+For automatic startup validation, JCE verification, strict mode enforcement, and JMX MBean registration, declare the `VaultLifecycleListener` in `$CATALINA_HOME/conf/server.xml`:
+```xml
+<Server port="8005" shutdown="SHUTDOWN">
+    <!-- Enforces strict production mode & registers JMX Status MBean -->
+    <Listener className="umrao.tomcat.vault.listener.VaultLifecycleListener"
+              strictMode="true"
+              jmxEnabled="true" />
+    ...
+</Server>
+```
+
 ### 1. Deploy the JAR
-Copy `tomcat-vault-2.0.0.jar` into your Tomcat `$CATALINA_HOME/lib/` directory:
+Copy `tomcat-vault-2.1.0.jar` into your Tomcat `$CATALINA_HOME/lib/` directory:
 ```bash
-cp build/libs/tomcat-vault-2.0.0.jar $CATALINA_HOME/lib/
+cp build/libs/tomcat-vault-2.1.0.jar $CATALINA_HOME/lib/
 ```
 
 ---
@@ -202,7 +239,7 @@ Requires `HikariCP.jar` and `slf4j-api.jar` in `$CATALINA_HOME/lib/`:
     name="jdbc/HikariPool"
     auth="Container"
     type="com.zaxxer.hikari.HikariDataSource"
-    factory="org.apache.tomcat.vault.VaultHikariDataSourceFactory"
+    factory="umrao.tomcat.vault.VaultHikariDataSourceFactory"
     driverClassName="org.postgresql.Driver"
     jdbcUrl="jdbc:postgresql://localhost:5432/proddb"
     username="ENC(AQIDBAUGBwgJCgsMDQ4PEBES...)"
@@ -219,7 +256,7 @@ Requires `HikariCP.jar` and `slf4j-api.jar` in `$CATALINA_HOME/lib/`:
     auth="Container"
     type="javax.sql.DataSource"
     driverClassName="oracle.jdbc.OracleDriver"
-    factory="org.apache.tomcat.vault.VaultBasicDataSourceFactory"
+    factory="umrao.tomcat.vault.VaultBasicDataSourceFactory"
     username="ENC(XAYad7xottt2lalhO6vL/JKEC33F1FOc7ctXWflNECfFGcyxerzh8CtfD8E1keLwmmVGv03qAN/SNB/jKT8=)"
     password="ENC(axVXzR5w+rr8ICucjw/ZZzhila/psl0pwBez6wo+29k3+Hbi/+6kN/YFcaqhOoCxniLc)"
     url="jdbc:oracle:thin:@dbhost:1521/appdb"
@@ -234,7 +271,7 @@ Requires `HikariCP.jar` and `slf4j-api.jar` in `$CATALINA_HOME/lib/`:
     auth="Container"
     type="javax.sql.DataSource"
     driverClassName="com.microsoft.sqlserver.jdbc.SQLServerDriver"
-    factory="org.apache.tomcat.vault.VaultDataSourceFactory"
+    factory="umrao.tomcat.vault.VaultDataSourceFactory"
     username="ENC(XAYad7xottt2lalhO6vL/JKEC33F1FOc7ctXWflNECfFGcyxerzh8CtfD8E1keLwmmVGv03qAN/SNB/jKT8=)"
     password="ENC(axVXzR5w+rr8ICucjw/ZZzhila/psl0pwBez6wo+29k3+Hbi/+6kN/YFcaqhOoCxniLc)"
     url="jdbc:sqlserver://localhost:1433;databaseName=appdb;trustServerCertificate=true"
@@ -248,7 +285,7 @@ Requires `HikariCP.jar` and `slf4j-api.jar` in `$CATALINA_HOME/lib/`:
     name="jdbc/ViburPool"
     auth="Container"
     type="org.vibur.dbcp.ViburDBCPDataSource"
-    factory="org.apache.tomcat.vault.VaultGenericDataSourceFactory"
+    factory="umrao.tomcat.vault.VaultGenericDataSourceFactory"
     delegateFactory="org.vibur.dbcp.ViburDBCPDataSourceFactory"
     username="ENC(...)"
     password="ENC(...)"
@@ -262,7 +299,7 @@ Fetch secrets directly from cloud secret managers without static encryption keys
     name="jdbc/CloudDB"
     auth="Container"
     type="javax.sql.DataSource"
-    factory="org.apache.tomcat.vault.VaultDataSourceFactory"
+    factory="umrao.tomcat.vault.VaultDataSourceFactory"
     username="AWS_SECRET(prod/database#username)"
     password="AWS_SECRET(prod/database#password)"
     url="jdbc:mysql://db.prod.internal:3306/appdb" />
@@ -279,7 +316,7 @@ Enable dedicated file logging directly in `$CATALINA_HOME/bin/setenv.sh` without
 CATALINA_OPTS="$CATALINA_OPTS -Dtomcat.vault.log.file=${catalina.base}/logs/tomcat-vault-debug.log -Dtomcat.vault.debug=true"
 ```
 
-### Option B: Native Tomcat JULI Logging
+### Option B: Native Tomcat Logging
 Append the following to `$CATALINA_BASE/conf/logging.properties`:
 ```properties
 # Dedicated JULI Async File Handler for Tomcat Vault
@@ -291,8 +328,8 @@ Append the following to `$CATALINA_BASE/conf/logging.properties`:
 5vault.org.apache.juli.AsyncFileHandler.encoding = UTF-8
 
 # Route logger to handler
-org.apache.tomcat.vault.level = FINE
-org.apache.tomcat.vault.handlers = 5vault.org.apache.juli.AsyncFileHandler
+umrao.tomcat.vault.level = FINE
+umrao.tomcat.vault.handlers = 5vault.org.apache.juli.AsyncFileHandler
 ```
 
 ---
@@ -326,7 +363,7 @@ flowchart TD
 | **Cleartext Logging** | Severe cleartext logging in `catalina.out` | **Zero cleartext credential logging** |
 | **Configuration Verification** | Requires Tomcat restart | Built-in CLI dry-run verification (`verify --context`) |
 | **Build System** | Manual IntelliJ build | Kotlin Gradle DSL & Maven Central coordinates |
-| **Automated Testing** | Zero automated tests | **65 automated tests (~87% instruction / ~73% branch)** |
+| **Automated Testing** | Zero automated tests | **84 automated tests (~84% instruction / ~68% branch)** |
 
 ---
 
@@ -335,11 +372,11 @@ flowchart TD
 Run the test suite and generate HTML/CSV coverage reports:
 
 ```bash
-gradle test jacocoTestReport --no-daemon
+./gradlew test jacocoTestReport
 ```
 
 ### Coverage Highlights:
-- **100% Instruction / 100% Branch**: `VaultBasicDataSourceFactory`, `VaultDataSourceFactory`, `EncryptBasicDataSourceFactory`, `EncryptDataSourceFactory`, `DefaultKeyProvider`, `KeyProvider`, `JulVaultLog`, `Encryption`, `EncryptDecrypt`.
+- **100% Instruction / 100% Branch**: `VaultBasicDataSourceFactory`, `VaultDataSourceFactory`, `DefaultKeyProvider`, `KeyProvider`, `JulVaultLog`.
 - **93.3% Instruction / 100% Branch**: `VaultHikariDataSourceFactory`
 - **97.9% Instruction / 75.0% Branch**: `VaultGenericDataSourceFactory`
 - **100% Instruction / 85.0% Branch**: `VaultJmxSanitizer`

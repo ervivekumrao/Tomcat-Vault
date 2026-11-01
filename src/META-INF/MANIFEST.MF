@@ -1,7 +1,8 @@
 Manifest-Version: 1.0
-Main-Class: org.apache.tomcat.vault.cli.TomcatVaultCLI
+Main-Class: umrao.tomcat.vault.cli.TomcatVaultCLI
 Implementation-Title: Tomcat Vault
-Implementation-Version: 2.0.0
-Implementation-Vendor: Apache Software Foundation / tomcat-vault
+Implementation-Version: 2.1.0
+Implementation-Vendor: com.github.ervivekumrao
 Bundle-License: http://www.apache.org/licenses/LICENSE-2.0
+
 

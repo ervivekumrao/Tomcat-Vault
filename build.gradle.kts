@@ -23,8 +23,8 @@ group = "com.github.ervivekumrao"
 version = "2.0.0"
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
 }
 
 repositories {
@@ -58,6 +58,7 @@ dependencies {
         exclude(group = "org.apache.tomcat", module = "tomcat-juli")
     }
     compileOnly("org.apache.tomcat:tomcat-juli:$tomcatVersion")
+    compileOnly("org.apache.tomcat:tomcat-catalina:$tomcatVersion")
     compileOnly("com.zaxxer:HikariCP:4.0.3")
     testImplementation("org.apache.tomcat:tomcat-dbcp:$tomcatVersion") {
         exclude(group = "org.apache.tomcat", module = "tomcat-juli")
@@ -66,6 +67,7 @@ dependencies {
         exclude(group = "org.apache.tomcat", module = "tomcat-juli")
     }
     testImplementation("org.apache.tomcat:tomcat-juli:$tomcatVersion")
+    testImplementation("org.apache.tomcat:tomcat-catalina:$tomcatVersion")
     testImplementation("com.zaxxer:HikariCP:4.0.3")
     testImplementation("org.slf4j:slf4j-simple:1.7.36")
     testImplementation("com.h2database:h2:2.2.224")
@@ -74,6 +76,7 @@ dependencies {
 }
 
 tasks.withType<JavaCompile> {
+    options.release.set(17)
     options.encoding = "UTF-8"
 }
 
@@ -81,7 +84,7 @@ tasks.jar {
     manifest {
         attributes(
             "Manifest-Version" to "1.0",
-            "Main-Class" to "org.apache.tomcat.vault.cli.TomcatVaultCLI",
+            "Main-Class" to "umrao.tomcat.vault.cli.TomcatVaultCLI",
             "Implementation-Title" to "Tomcat Vault",
             "Implementation-Version" to project.version
         )
